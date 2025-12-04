@@ -10,9 +10,9 @@ from scipy.spatial.distance import cdist
 
 from model import get_odj, GraphConvLayer, Linear
 
-class scstGCN(pl.LightningModule):
+class spEnhance(pl.LightningModule):
     def __init__(self, lr, num_features, num_genes, ori_radius, bias=False):
-        super(scstGCN, self).__init__()
+        super(spEnhance, self).__init__()
 
         self.lr = lr
         self.ori_radius = ori_radius
@@ -65,3 +65,4 @@ class scstGCN(pl.LightningModule):
         optimizer = Adam(self.parameters(), lr=self.lr)
 
         return optimizer
+
