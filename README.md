@@ -1,11 +1,25 @@
-# spstEnhance
+# spEnhance
+`spEnhance` is a computational framework that reconstructs spatial gene expression with super-resolution from spot-level data while quantifying the confidence in its predictions. spEnhance achieves higher prediction accuracy by integrating both histology and single-cell RNA-seq (scRNA-seq) data, and employs a novel way to construct validation sets for trustworthy prediction.
 
-+ Refer to `run_stEhance.sh` for how to run the pipeline.
-+ Put single cell reference in the same directory as `cnts.csv`, `locs-raw.csv` and other input files. Name your single cell reference, which is expected as a seurat object, as `sc_reference.RDS` and save your cell type annotation as `celltype`.
-+ When doing cell type annotation in the single cell data, try to keep the total number of cell types around 8 or so, such that the proportion of each type of cell wouldn't be too low, which is beneficial for trianing process.
-+ If sc_reference is available, it seems unnecessary to do spot imputation. Even if the reference is not paired with spatial transcriptomics data, it still improve the performance to a certain degree, as long as the data has been well annotated.
-+ However, if no single reference available, even public ones, then we would stick to the old pipeline.
-
-## Update on Sept 28, 2025
-+ rename single-cell reference as `sc_reference.RDS` and put the active annotation into celltype.
-+ Run `run_nnmf.R` before running imputation and make sure the file `gene-names-group.txt` exist in the same directory as other input files.
+## Get Started
+To run the demo,
+```
+# Use Python 3.9 or above
+./run_demo.sh
+```
+Using GPUs is recommended.
+### Data format
++ `he-raw.jpg`: Raw H&E image.
++ `cnts.csv`: Spatial gene count matrix.
+  + Row 1: Gene names.
+  + Row 2 and after: Each row represents a spot.
+  + Column 1: Spot ID
+  + Column 2 and after: Each column represents a gene.
++ `locs-raw.csv`: Spot location.
+  + Row 1: Header.
+  + Row 2 and after: Each row represents a spot. Number and order of the spots should match `cnts.csv`
+  + Column 1: Spot ID.
+  + Column 2: x-coordinate of the spot (horizontal axis). Must be in the same space as column of the array indices of pixels in `he-raw.jpg`.
+  + Column 3: y-coordinate of the spot (vertical axis). Must be in the same space as row of the array indices of pixels in `he-raw.jpg`.
++ `pixel-size-raw.txt`: Side length (in micrometers) of a pixel in `he-raw.jpg`.
++ `radius-raw.txt`: Number of pixels covered by spot radius in `he-raw.jpg`.
