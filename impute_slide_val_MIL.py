@@ -207,8 +207,8 @@ def impute(
     cnts_train_range /= mask_size
 
     h, w = embs.shape[0], embs.shape[1]
-    tile_size = min(h, w) // 20
-    step_size = tile_size // 4
+    tile_size = min(h, w) // 40
+    step_size = tile_size // 2
     embs_1 = pad_sliding(embs, kernel_size=tile_size, stride=step_size)
 
     del embs
