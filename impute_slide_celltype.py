@@ -5,7 +5,7 @@ import numpy as np
 from utils import read_lines, read_string, save_pickle, load_pickle, load_tsv, load_image, get_disk_mask, load_csv
 from train import get_model as train_load_model
 from scipy.spatial.distance import cdist
-from model_cell_type import scstGCN
+from model_cell_type import spCelltype
 import os
 
 import argparse
@@ -139,7 +139,7 @@ def get_model(
 
     dataset = SpotDataset(x, y, locs, radius)
     model = train_load_model(
-            model_class=scstGCN,
+            model_class=spCelltype,
             model_kwargs=dict(
                 num_features=x.shape[-1],
                 num_genes=y.shape[-1],
