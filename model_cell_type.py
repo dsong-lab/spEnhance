@@ -108,9 +108,9 @@ class Linear(nn.Module):
         output = self.func(output) + self.beta
         return output
 
-class scstGCN(pl.LightningModule):
+class spCelltype(pl.LightningModule):
     def __init__(self, lr, num_features, num_genes, ori_radius, bias=False):
-        super(scstGCN, self).__init__()
+        super(spCelltype, self).__init__()
 
         self.lr = lr
         self.ori_radius = ori_radius
@@ -162,3 +162,4 @@ class scstGCN(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)
         return optimizer
+
