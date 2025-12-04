@@ -6,7 +6,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from utils import read_lines, read_string, save_pickle, load_pickle, load_image, get_disk_mask, load_csv
 from train_and_val import get_model as train_load_model
-from model_val_MIL import scstGCN
+from model_val_MIL import spEnhance
 from impute_slide import pad_sliding, pad, SpotDataset, get_patches_flat, get_locs
 from itertools import chain
 import json
