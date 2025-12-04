@@ -67,7 +67,7 @@ def get_model(
     val_dataset = SpotDataset(x_val, y_val, locs, radius)
     
     model = train_load_model(
-            model_class=scstGCN,
+            model_class=spEnhance,
             model_kwargs=dict(
                 num_features=x_train.shape[-1],
                 num_genes=cluster_size,
