@@ -28,7 +28,7 @@ fi
 
 # extract histology features
 python extract_features_vit.py ${prefix} --device='cuda'
-python extract_features_uni.py ${prefix} --login='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' # replace with your own login
+python extract_features_uni.py ${prefix} --login='HUGGINGFACE_TOKEN' # replace with your own login
 
 python merge_feature.py ${prefix} --method='pca' # pca/nmf/ica
 
