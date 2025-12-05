@@ -70,7 +70,7 @@ if [ "$validation" = true ]; then
 
     Rscript run_nnmf.R --path ${prefix} --noSignatures 15 --k 6 --ntop 50
     
-    python impute_slide_val_MIL.py ${prefix} \
+    python impute_final.py ${prefix} \
         --cnts_train_name ${cnts_train_name}_seed_${seed}.csv \
         --cnts_val_name ${cnts_val_name}_seed_${seed}.csv \
         --epochs=200 --device='cuda' --n_states=5
