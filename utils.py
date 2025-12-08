@@ -2,7 +2,8 @@ import itertools
 from PIL import Image
 import pickle
 import os
-
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 import numpy as np
 import pandas as pd
 import yaml
@@ -221,3 +222,90 @@ def get_disk_mask(radius, boundary_width=None):
     if boundary_width is not None:
         isin *= distsq >= (radius-boundary_width)**2
     return isin
+
+def plot_with_colorbar(pixel_map, outfile):
+    # Compute scaling based on 0.9999 quantile of absolute values
+    q = np.nanquantile(np.abs(pixel_map), 0.9999)
+
+    # Avoid division by zero
+    if q == 0:
+        q = 1e-6
+
+    # Normalize into [-1, 1]
+    norm_map = pixel_map / q
+    norm_map = np.clip(norm_map, -1, 1)  # values outside -> clipped to [-1,1]
+
+    # Custom colormap: blue → gray → red (center at 0)
+    custom_cmap = LinearSegmentedColormap.from_list(
+        "blue_gray_red",
+        [
+            (0.0, (0.0, 0.0, 1.0)),   # -1 -> blue
+            (0.5, (0.6, 0.6, 0.6)),   #  0 -> gray
+            (1.0, (1.0, 0.0, 0.0)),   # +1 -> red
+        ]
+    )
+    norm = TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1)
+
+    dpi = 200
+    fig, ax = plt.subplots(figsize=(20, 10), dpi=dpi)
+
+    im = ax.imshow(norm_map, cmap=custom_cmap, norm=norm)
+    ax.axis("off")
+
+    cbar = fig.colorbar(
+        im,
+        ax=ax,
+        orientation="horizontal",
+        fraction=0.046,
+        pad=0.10
+    )
+
+    ticks = [-1, -0.75, -0.5, -0.25, 
+              0,
+              0.25, 0.5, 0.75, 1]
+    cbar.set_ticks(ticks)
+    cbar.set_ticklabels([f"{t:.1f}" for t in ticks])
+    cbar.set_label("Scaled Value", fontsize=12)
+
+    fig.savefig(outfile, dpi=dpi, bbox_inches="tight", pad_inches=0)
+    plt.close(fig)
+
+
+def plot_without_colorbar(pixel_map, outfile):
+    # Compute scaling based on 0.9999 quantile of abs values
+    q = np.nanquantile(np.abs(pixel_map), 0.9999)
+    if q == 0:
+        q = 1e-6
+
+    # Normalize to [-1, 1]
+    norm_map = pixel_map / q
+    norm_map = np.clip(norm_map, -1, 1) # cap all values from -1 to 1
+
+    # Prepare RGB array
+    H, W = norm_map.shape
+    rgb = np.zeros((H, W, 3), dtype=np.uint8)
+
+    # Map from [-1,1] to [0,1]
+    t = (norm_map + 1) / 2.0  
+
+    # Blue → Gray → Red interpolation
+    blue = np.array([0, 0, 255], dtype=float)
+    gray = np.array([153, 153, 153], dtype=float)
+    red  = np.array([255, 0, 0], dtype=float)
+
+    # For t < 0.5: interpolate blue to gray
+    mask1 = t <= 0.5
+    ratio1 = t[mask1] / 0.5  # 0: blue, 1: gray
+    rgb[mask1] = (blue[None,:] * (1 - ratio1[:,None]) +
+                  gray[None,:] * ratio1[:,None])
+
+    # For t >= 0.5: interpolate gray to red
+    mask2 = t > 0.5
+    ratio2 = (t[mask2] - 0.5) / 0.5  # 0: gray, 1: red
+    rgb[mask2] = (gray[None,:] * (1 - ratio2[:,None]) +
+                  red[None,:] * ratio2[:,None])
+
+    nan_mask = np.isnan(pixel_map)
+    rgb[nan_mask] = [255, 255, 255] # keep NaN as white
+    rgb = rgb.astype(np.uint8)
+    Image.fromarray(rgb).save(outfile)
