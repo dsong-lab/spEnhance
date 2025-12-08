@@ -44,17 +44,6 @@ python select_genes.py --n-top=${n_genes} "${prefix}cnts.csv" "${prefix}gene-nam
 python rescale.py ${prefix} --locs --radius
 
 python filter.py ${prefix}
-# Rscript run_rctd.R <reference.RDS tild> <count matrix> <location matrix> <Path to save the results> <number of cores used>
-Rscript run_rctd.R ${prefix}sc_reference.RDS ${prefix}cnts_train_seed_1.csv ${prefix}locs.csv ${prefix} 4 
-
-python select_genes.py --n-top=600 ${prefix}"proportion_celltype.csv" ${prefix}"cell-type-names.txt"
-
-python impute_slide_celltype.py ${prefix} --epochs=100 --device='cuda' --n_states=5
-
-python assign_reference.py ${prefix} --mode='combined' --normalize='gene-zscore' --dim=256
-
-python plot_predicted_celltype.py ${prefix}
-  
 if [ "$validation" = true ]; then
     echo "Generating validation data"
 
@@ -67,19 +56,35 @@ if [ "$validation" = true ]; then
     python rename_gene.py ${prefix}
     
     echo "Running imputation with validation setting"
+    
+    echo "Create embedding for train data"
+    source cell_type_deconvolution.sh $prefix ${cnts_train_name}_seed_${seed}.csv locs.csv
+    mv $prefix/embeddings-combined.pickle $prefix/embeddings-combined-train.pickle
+    mv $prefix/predicted_celltype.png $prefix/predicted_celltype-train.png
+    
+    echo "Create embedding for validation data"
+    source cell_type_deconvolution.sh $prefix ${cnts_val_name}_seed_${seed}.csv locs.csv
+    mv $prefix/embeddings-combined.pickle $prefix/embeddings-combined-val.pickle
+    mv $prefix/predicted_celltype.png $prefix/predicted_celltype-val.png
+
+    echo "Create embedding for ALL data"
+    source cell_type_deconvolution.sh $prefix cnts.csv locs.csv
+    mv $prefix/embeddings-combined.pickle $prefix/embeddings-combined-all.pickle
+    mv $prefix/predicted_celltype.png $prefix/predicted_celltype-all.png
 
     Rscript run_nnmf.R --path ${prefix} --noSignatures 15 --k 6 --ntop 50
     
-    python impute_final.py ${prefix} \
+    python impute_final_split.py --prefix ${prefix} \
         --cnts_train_name ${cnts_train_name}_seed_${seed}.csv \
+        --locs_train_name locs.csv \
         --cnts_val_name ${cnts_val_name}_seed_${seed}.csv \
-        --epochs=200 --device='cuda' --n_states=5
+        --locs_val_name locs.csv \
+        --epochs=400 --device='cuda' --n_states=5
 
     # Rank global performance and visualize local uncertainties
-    python uncertainty_quant.py ${prefix} \
-        --inpute_folder_name cnts-super-val \
+    python error_quant.py --prefix ${prefix} \
         --cnts_val_name ${cnts_val_name}_seed_${seed}.csv \
-        --smooth_method exp_decay
+        --locs_val_name locs.csv
 else
     # train gene expression prediction model and predict at super-resolution
     python impute_slide.py ${prefix} --epochs=400 --device='cuda' --n_states=5 # train model from scratch
@@ -93,7 +98,7 @@ else
 fi
 
 # visualize imputed gene expression
-python plot_imputed.py ${prefix} cnts-super-val
+python plot_imputed.py ${prefix} Prediction_val/cnts-super/
 
 # segment image by gene features
 python cluster.py --filter-size=8 --min-cluster-size=20 --n-clusters=10 --mask=${prefix}mask-small.png ${prefix}embeddings-gene.pickle ${prefix}clusters-gene/
