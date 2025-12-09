@@ -26,7 +26,7 @@ Using GPUs is recommended.
 + `radius-raw.txt`: Number of pixels covered by spot radius in `he-raw.jpg`.
 
 ### Documentation
-A step-by-step tutorial for major steps is available at https://spenhance-documentation.readthedocs.io/en/latest/imputation.html
+A step-by-step tutorial for major steps is available at https://spenhance-documentation.readthedocs.io/en/latest/index.html
 
 ### Demo data 
 Demo data deposited at https://doi.org/10.6084/m9.figshare.30827999
