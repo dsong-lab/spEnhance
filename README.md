@@ -8,6 +8,7 @@ To run the demo,
 ./run_demo.sh
 ```
 Using GPUs is recommended.
+
 ### Data format
 + `he-raw.jpg`: Raw H&E image.
 + `cnts.csv`: Spatial gene count matrix.
@@ -23,3 +24,11 @@ Using GPUs is recommended.
   + Column 3: y-coordinate of the spot (vertical axis). Must be in the same space as row of the array indices of pixels in `he-raw.jpg`.
 + `pixel-size-raw.txt`: Side length (in micrometers) of a pixel in `he-raw.jpg`.
 + `radius-raw.txt`: Number of pixels covered by spot radius in `he-raw.jpg`.
+
+### Documentation
+A step-by-step tutorial for major steps is available at https://spenhance-documentation.readthedocs.io/en/latest/imputation.html
+
+### Demo data 
+Demo data deposited at https://doi.org/10.6084/m9.figshare.30827999
+
+Please download the files and put them under `data/` directory.
