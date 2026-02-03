@@ -26,6 +26,8 @@ def run(
     k_max: int,
     seed: int,
     out: Path,
+    n_jobs: int,
+    n_jobs_init: int,
 ) -> None:
     from nnmf import nnmf, select_no_signatures
 
@@ -49,6 +51,8 @@ def run(
             k_seq=k_seq,
             method="nnmf",
             seed=seed,
+            n_jobs=n_jobs,
+            n_jobs_init=n_jobs_init,
         )
         no_signatures = int(auto["best_k"])
         print(f"[auto-k] selected noSignatures={no_signatures}")
@@ -59,6 +63,7 @@ def run(
         location=locs.to_numpy(),
         not_sc=False,
         seed=seed,
+        n_jobs=n_jobs_init,
     )
 
     features = res["signatures"]
@@ -76,6 +81,8 @@ def main() -> None:
     parser.add_argument("--k-min", type=int, default=2)
     parser.add_argument("--k-max", type=int, default=30)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--n-jobs", type=int, default=1, help="Parallel jobs for auto-k / auto-lambda.")
+    parser.add_argument("--n-jobs-init", type=int, default=1, help="Parallel jobs for NNMF multi-init.")
     parser.add_argument("--out", type=Path, default=Path("features_py.csv"))
     args = parser.parse_args()
 
@@ -87,6 +94,8 @@ def main() -> None:
         k_max=args.k_max,
         seed=args.seed,
         out=args.out,
+        n_jobs=args.n_jobs,
+        n_jobs_init=args.n_jobs_init,
     )
 
 

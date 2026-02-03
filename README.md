@@ -32,3 +32,14 @@ A step-by-step tutorial for major steps is available at https://spenhance-docume
 Demo data deposited at https://doi.org/10.6084/m9.figshare.30827999
 
 Please download the files and put them under `data/` directory.
+
+## CPU Parallelization (Cluster-Friendly)
+spEnhance includes CPU-only multiprocessing paths for large batch runs on clusters:
+
+- **RCTD (Python)**: per-spot optimization can be parallelized (spot-level tasks).
+- **NNMF / Spatial PNMF**:
+  - multi-init NNMF runs are parallelizable,
+  - auto-k selection parallelizes per `k`,
+  - auto-lambda selection parallelizes per `lambda`.
+
+These routines are CPU-only (no GPU dependency) and can be configured via `n_jobs` settings in the respective scripts/functions to match cluster allocations.

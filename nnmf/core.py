@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import multiprocessing as mp
 import numpy as np
 import scipy.sparse
 
@@ -61,6 +62,28 @@ class _RRngMT:
         return vals.reshape(size)
 
 
+_NMF_INIT_DATA = None
+_NMF_INIT_NO_SIG = None
+_NMF_INIT_SMALL_ITER = None
+
+
+def _init_nmf_worker(data: np.ndarray, no_signatures: int, small_iter: int) -> None:
+    global _NMF_INIT_DATA, _NMF_INIT_NO_SIG, _NMF_INIT_SMALL_ITER
+    _NMF_INIT_DATA = data
+    _NMF_INIT_NO_SIG = no_signatures
+    _NMF_INIT_SMALL_ITER = small_iter
+
+
+def _run_nmf1_worker(seed: int) -> Tuple[np.ndarray, np.ndarray, float]:
+    rng = _make_rng(int(seed))
+    return _nmf1(
+        _NMF_INIT_DATA,
+        _NMF_INIT_NO_SIG,
+        rng,
+        iterations=_NMF_INIT_SMALL_ITER,
+    )
+
+
 def _r_state_from_seed(seed: int) -> Optional[Tuple[List[int], int]]:
     rscript = os.environ.get("NNMF_RSCRIPT") or shutil.which("Rscript")
     if not rscript:
@@ -95,6 +118,39 @@ def _make_rng(seed: Optional[int]) -> np.random.Generator | _LegacyRNG | _RRngMT
         state, mti = r_state
         return _RRngMT(state, mti)
     return _LegacyRNG(seed)
+
+
+def _rng_integers(rng, low: int, high: int, size: int) -> np.ndarray:
+    if size <= 0:
+        return np.array([], dtype=int)
+    vals = rng.random((size,))
+    return (low + np.floor(vals * (high - low))).astype(int)
+
+
+def _get_mp_context() -> mp.context.BaseContext:
+    methods = mp.get_all_start_methods()
+    if "fork" in methods:
+        return mp.get_context("fork")
+    return mp.get_context("spawn")
+
+
+def _parallel_nmf1(
+    data: np.ndarray,
+    no_signatures: int,
+    small_iter: int,
+    seeds: np.ndarray,
+    n_jobs: int,
+) -> List[Tuple[np.ndarray, np.ndarray, float]]:
+    if seeds.size == 0:
+        return []
+    ctx = _get_mp_context()
+    with ctx.Pool(
+        processes=int(n_jobs),
+        initializer=_init_nmf_worker,
+        initargs=(data, int(no_signatures), int(small_iter)),
+    ) as pool:
+        results = pool.map(_run_nmf1_worker, seeds.tolist())
+    return results
 
 
 def _gkl_error(y: np.ndarray, mu: np.ndarray) -> float:
@@ -182,31 +238,78 @@ def _nmfgen(
     small_iter: int = 100,
     error_freq: int = 10,
     score_ortho: float = 0.0,
+    n_jobs: int = 1,
 ) -> Dict[str, np.ndarray]:
-    init_count = initial
+    init_count = int(initial)
     if init_exposures_list is not None and init_signatures_list is not None:
         init_count = min(len(init_exposures_list), len(init_signatures_list))
-    exposures, signatures, gkl_value = _nmf1(
-        data,
-        no_signatures,
-        rng,
-        init_exposures=init_exposures_list[0] if init_exposures_list else init_exposures,
-        init_signatures=init_signatures_list[0] if init_signatures_list else init_signatures,
-        iterations=small_iter,
-    )
-    for i in range(1, init_count):
-        exp_new, sig_new, gkl_new = _nmf1(
+
+    best_exposures = None
+    best_signatures = None
+    gkl_value = np.inf
+
+    if init_exposures_list is not None and init_signatures_list is not None:
+        for i in range(init_count):
+            exp_new, sig_new, gkl_new = _nmf1(
+                data,
+                no_signatures,
+                rng,
+                init_exposures=init_exposures_list[i],
+                init_signatures=init_signatures_list[i],
+                iterations=small_iter,
+            )
+            if gkl_new < gkl_value:
+                gkl_value = gkl_new
+                best_exposures = exp_new
+                best_signatures = sig_new
+    else:
+        remaining = init_count
+        if init_exposures is not None or init_signatures is not None:
+            exp_new, sig_new, gkl_new = _nmf1(
+                data,
+                no_signatures,
+                rng,
+                init_exposures=init_exposures,
+                init_signatures=init_signatures,
+                iterations=small_iter,
+            )
+            gkl_value = gkl_new
+            best_exposures = exp_new
+            best_signatures = sig_new
+            remaining = init_count - 1
+
+        if remaining > 0:
+            if n_jobs > 1 and remaining > 1:
+                seeds = _rng_integers(rng, 0, 2**31 - 1, remaining)
+                results = _parallel_nmf1(data, no_signatures, small_iter, seeds, n_jobs)
+                for exp_new, sig_new, gkl_new in results:
+                    if gkl_new < gkl_value:
+                        gkl_value = gkl_new
+                        best_exposures = exp_new
+                        best_signatures = sig_new
+            else:
+                for _ in range(remaining):
+                    exp_new, sig_new, gkl_new = _nmf1(
+                        data,
+                        no_signatures,
+                        rng,
+                        iterations=small_iter,
+                    )
+                    if gkl_new < gkl_value:
+                        gkl_value = gkl_new
+                        best_exposures = exp_new
+                        best_signatures = sig_new
+
+    if best_exposures is None or best_signatures is None:
+        best_exposures, best_signatures, gkl_value = _nmf1(
             data,
             no_signatures,
             rng,
-            init_exposures=init_exposures_list[i] if init_exposures_list else None,
-            init_signatures=init_signatures_list[i] if init_signatures_list else None,
             iterations=small_iter,
         )
-        if gkl_new < gkl_value:
-            gkl_value = gkl_new
-            exposures = exp_new
-            signatures = sig_new
+
+    exposures = best_exposures
+    signatures = best_signatures
 
     estimate = exposures @ signatures
     gkl_old = _gkl_error(data.ravel(), estimate.ravel())
@@ -249,31 +352,78 @@ def _nmfspatial(
     small_iter: int = 100,
     error_freq: int = 10,
     score_ortho: float = 0.0,
+    n_jobs: int = 1,
 ) -> Dict[str, np.ndarray]:
-    init_count = initial
+    init_count = int(initial)
     if init_exposures_list is not None and init_signatures_list is not None:
         init_count = min(len(init_exposures_list), len(init_signatures_list))
-    exposures, signatures, gkl_value = _nmf1(
-        data,
-        no_signatures,
-        rng,
-        init_exposures=init_exposures_list[0] if init_exposures_list else init_exposures,
-        init_signatures=init_signatures_list[0] if init_signatures_list else init_signatures,
-        iterations=small_iter,
-    )
-    for i in range(1, init_count):
-        exp_new, sig_new, gkl_new = _nmf1(
+
+    best_exposures = None
+    best_signatures = None
+    gkl_value = np.inf
+
+    if init_exposures_list is not None and init_signatures_list is not None:
+        for i in range(init_count):
+            exp_new, sig_new, gkl_new = _nmf1(
+                data,
+                no_signatures,
+                rng,
+                init_exposures=init_exposures_list[i],
+                init_signatures=init_signatures_list[i],
+                iterations=small_iter,
+            )
+            if gkl_new < gkl_value:
+                gkl_value = gkl_new
+                best_exposures = exp_new
+                best_signatures = sig_new
+    else:
+        remaining = init_count
+        if init_exposures is not None or init_signatures is not None:
+            exp_new, sig_new, gkl_new = _nmf1(
+                data,
+                no_signatures,
+                rng,
+                init_exposures=init_exposures,
+                init_signatures=init_signatures,
+                iterations=small_iter,
+            )
+            gkl_value = gkl_new
+            best_exposures = exp_new
+            best_signatures = sig_new
+            remaining = init_count - 1
+
+        if remaining > 0:
+            if n_jobs > 1 and remaining > 1:
+                seeds = _rng_integers(rng, 0, 2**31 - 1, remaining)
+                results = _parallel_nmf1(data, no_signatures, small_iter, seeds, n_jobs)
+                for exp_new, sig_new, gkl_new in results:
+                    if gkl_new < gkl_value:
+                        gkl_value = gkl_new
+                        best_exposures = exp_new
+                        best_signatures = sig_new
+            else:
+                for _ in range(remaining):
+                    exp_new, sig_new, gkl_new = _nmf1(
+                        data,
+                        no_signatures,
+                        rng,
+                        iterations=small_iter,
+                    )
+                    if gkl_new < gkl_value:
+                        gkl_value = gkl_new
+                        best_exposures = exp_new
+                        best_signatures = sig_new
+
+    if best_exposures is None or best_signatures is None:
+        best_exposures, best_signatures, gkl_value = _nmf1(
             data,
             no_signatures,
             rng,
-            init_exposures=init_exposures_list[i] if init_exposures_list else None,
-            init_signatures=init_signatures_list[i] if init_signatures_list else None,
             iterations=small_iter,
         )
-        if gkl_new < gkl_value:
-            gkl_value = gkl_new
-            exposures = exp_new
-            signatures = sig_new
+
+    exposures = best_exposures
+    signatures = best_signatures
 
     estimate = exposures @ signatures
     gkl_old = _gkl_error(data.ravel(), estimate.ravel())
@@ -335,33 +485,78 @@ def _nmfspatialbatch(
     small_iter: int = 100,
     error_freq: int = 10,
     score_ortho: float = 0.0,
+    n_jobs: int = 1,
 ) -> Dict[str, np.ndarray]:
-    init_count = initial
+    init_count = int(initial)
     if init_exposures_list is not None and init_signatures_list is not None:
         init_count = min(len(init_exposures_list), len(init_signatures_list))
-    exposures, signatures, gkl_value = _nmf1(
-        data,
-        no_signatures,
-        rng,
-        init_exposures=init_exposures_list[0] if init_exposures_list else init_exposures,
-        init_signatures=init_signatures_list[0] if init_signatures_list else init_signatures,
-        iterations=small_iter,
-    )
-    for i in range(init_count):
-        if i == 0:
-            continue
-        exp_new, sig_new, gkl_new = _nmf1(
+
+    best_exposures = None
+    best_signatures = None
+    gkl_value = np.inf
+
+    if init_exposures_list is not None and init_signatures_list is not None:
+        for i in range(init_count):
+            exp_new, sig_new, gkl_new = _nmf1(
+                data,
+                no_signatures,
+                rng,
+                init_exposures=init_exposures_list[i],
+                init_signatures=init_signatures_list[i],
+                iterations=small_iter,
+            )
+            if gkl_new < gkl_value:
+                gkl_value = gkl_new
+                best_exposures = exp_new
+                best_signatures = sig_new
+    else:
+        remaining = init_count
+        if init_exposures is not None or init_signatures is not None:
+            exp_new, sig_new, gkl_new = _nmf1(
+                data,
+                no_signatures,
+                rng,
+                init_exposures=init_exposures,
+                init_signatures=init_signatures,
+                iterations=small_iter,
+            )
+            gkl_value = gkl_new
+            best_exposures = exp_new
+            best_signatures = sig_new
+            remaining = init_count - 1
+
+        if remaining > 0:
+            if n_jobs > 1 and remaining > 1:
+                seeds = _rng_integers(rng, 0, 2**31 - 1, remaining)
+                results = _parallel_nmf1(data, no_signatures, small_iter, seeds, n_jobs)
+                for exp_new, sig_new, gkl_new in results:
+                    if gkl_new < gkl_value:
+                        gkl_value = gkl_new
+                        best_exposures = exp_new
+                        best_signatures = sig_new
+            else:
+                for _ in range(remaining):
+                    exp_new, sig_new, gkl_new = _nmf1(
+                        data,
+                        no_signatures,
+                        rng,
+                        iterations=small_iter,
+                    )
+                    if gkl_new < gkl_value:
+                        gkl_value = gkl_new
+                        best_exposures = exp_new
+                        best_signatures = sig_new
+
+    if best_exposures is None or best_signatures is None:
+        best_exposures, best_signatures, gkl_value = _nmf1(
             data,
             no_signatures,
             rng,
-            init_exposures=init_exposures_list[i] if init_exposures_list else None,
-            init_signatures=init_signatures_list[i] if init_signatures_list else None,
             iterations=small_iter,
         )
-        if gkl_new < gkl_value:
-            gkl_value = gkl_new
-            exposures = exp_new
-            signatures = sig_new
+
+    exposures = best_exposures
+    signatures = best_signatures
 
     estimate = exposures @ signatures
     gkl_old = _gkl_error(data.ravel(), estimate.ravel())
@@ -643,6 +838,7 @@ def nnmf(
     score_ortho: float = 0.0,
     dtype: Optional[np.dtype] = None,
     fast: bool = True,
+    n_jobs: int = 1,
 ) -> Dict[str, np.ndarray]:
     if not isinstance(data, np.ndarray):
         raise ValueError("data must be a numpy array.")
@@ -679,6 +875,7 @@ def nnmf(
             small_iter=small_iter,
             error_freq=error_freq,
             score_ortho=score_ortho,
+            n_jobs=n_jobs,
         )
     else:
         if data.shape[0] != location.shape[0]:
@@ -721,6 +918,7 @@ def nnmf(
                 small_iter=small_iter,
                 error_freq=error_freq,
                 score_ortho=score_ortho,
+                n_jobs=n_jobs,
             )
         else:
             if data.shape[0] != batch_arr.shape[0]:
@@ -781,6 +979,7 @@ def nnmf(
                     small_iter=small_iter,
                     error_freq=error_freq,
                     score_ortho=score_ortho,
+                    n_jobs=n_jobs,
                 )
 
         if not_sc:

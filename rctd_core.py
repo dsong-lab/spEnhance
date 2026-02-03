@@ -3,6 +3,7 @@ from __future__ import annotations
 """Core RCTD likelihoods and optimization routines."""
 
 from dataclasses import dataclass
+from glob import glob
 import os
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -62,14 +63,51 @@ class LikelihoodCache:
 
 
 def load_qmat_npz(path: Optional[str] = None) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
-    """Load q-matrix data from npz."""
+    """Load q-matrix data from npz or split npz parts."""
     if path is None:
         path = DEFAULT_QMAT_PATH
-    data = np.load(path, allow_pickle=True)
-    x_vals = data["X_vals"]
-    qmat_all = {k: data[k] for k in data.files if k != "X_vals"}
-    return qmat_all, x_vals
 
+    def _load_single(p: str) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
+        data = np.load(p, allow_pickle=False)
+        x_vals = data["X_vals"]
+        qmat_all = {k: data[k] for k in data.files if k != "X_vals"}
+        return qmat_all, x_vals
+
+    if os.path.exists(path):
+        return _load_single(path)
+
+    # try split parts: qmat_part1.npz, qmat_part2.npz, ...
+    if path.endswith('.npz'):
+        base = path[:-4]
+    else:
+        base = path
+
+    parts = sorted(glob(f"{base}_part*.npz"))
+    if not parts:
+        # fallback to default split name in data dir
+        data_dir = os.path.join(os.path.dirname(__file__), "data")
+        parts = sorted(glob(os.path.join(data_dir, "qmat_part*.npz")))
+
+    if not parts:
+        raise FileNotFoundError(f"qmat file not found: {path}")
+
+    qmat_all = {}
+    x_vals = None
+    for p in parts:
+        data = np.load(p, allow_pickle=False)
+        if x_vals is None and "X_vals" in data.files:
+            x_vals = data["X_vals"]
+        for k in data.files:
+            if k == "X_vals":
+                continue
+            if k in qmat_all:
+                raise ValueError(f"Duplicate key {k} in {p}")
+            qmat_all[k] = data[k]
+
+    if x_vals is None:
+        raise ValueError("X_vals not found in qmat parts.")
+
+    return qmat_all, x_vals
 
 def solve_sq(q_mat: np.ndarray, x_vals: np.ndarray) -> np.ndarray:
     """Spline second-derivative table for q-matrix interpolation."""

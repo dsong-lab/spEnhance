@@ -1,7 +1,137 @@
 import math
+import multiprocessing as mp
 from typing import List, Optional, Sequence
 
 import numpy as np
+
+_SELECT_DATA = None
+_SELECT_LOCATION = None
+_SELECT_METHOD = None
+_SELECT_MAXITER = None
+_SELECT_INITIAL = None
+_SELECT_SMALL_ITER = None
+_SELECT_SEED = None
+_SELECT_NJOBS_INIT = None
+
+_AUTO_DATA = None
+_AUTO_LOCATION = None
+_AUTO_K = None
+_AUTO_SEED = None
+_AUTO_MAXITER = None
+_AUTO_LAP = None
+_AUTO_DATA_PROC = None
+_AUTO_KERNEL_CUTOFF = None
+_AUTO_NJOBS_INIT = None
+
+
+def _get_mp_context() -> mp.context.BaseContext:
+    methods = mp.get_all_start_methods()
+    if "fork" in methods:
+        return mp.get_context("fork")
+    return mp.get_context("spawn")
+
+
+def _init_select_worker(
+    data: np.ndarray,
+    location: Optional[np.ndarray],
+    method: str,
+    maxiter: int,
+    initial: int,
+    small_iter: int,
+    seed: Optional[int],
+    n_jobs_init: int,
+) -> None:
+    global _SELECT_DATA, _SELECT_LOCATION, _SELECT_METHOD, _SELECT_MAXITER, _SELECT_INITIAL
+    global _SELECT_SMALL_ITER, _SELECT_SEED, _SELECT_NJOBS_INIT
+    _SELECT_DATA = data
+    _SELECT_LOCATION = location
+    _SELECT_METHOD = method
+    _SELECT_MAXITER = maxiter
+    _SELECT_INITIAL = initial
+    _SELECT_SMALL_ITER = small_iter
+    _SELECT_SEED = seed
+    _SELECT_NJOBS_INIT = n_jobs_init
+
+
+def _select_worker(k: int) -> tuple[int, float, float]:
+    if _SELECT_METHOD == "nnmf":
+        from .core import nnmf
+
+        res = nnmf(
+            data=_SELECT_DATA,
+            no_signatures=int(k),
+            location=_SELECT_LOCATION,
+            maxiter=_SELECT_MAXITER,
+            initial=_SELECT_INITIAL,
+            small_iter=_SELECT_SMALL_ITER,
+            seed=_SELECT_SEED,
+            n_jobs=_SELECT_NJOBS_INIT,
+        )
+        weights = res["weights"]
+        err = float(res.get("error", np.nan))
+    elif _SELECT_METHOD == "spatial_pnmf":
+        from .core import spatial_pnmf
+
+        res = spatial_pnmf(
+            data=_SELECT_DATA,
+            no_signatures=int(k),
+            location=_SELECT_LOCATION,
+            maxiter=_SELECT_MAXITER,
+            initial=_SELECT_INITIAL,
+            small_iter=_SELECT_SMALL_ITER,
+            seed=_SELECT_SEED,
+        )
+        weights = res["weights"]
+        err = float(np.linalg.norm(_SELECT_DATA - weights @ res["signatures"]))
+    else:
+        raise ValueError("method must be 'nnmf' or 'spatial_pnmf'.")
+
+    wnorm = weights / np.maximum(np.linalg.norm(weights, axis=0, keepdims=True), 1e-12)
+    dev_ortho = float(np.linalg.norm(wnorm.T @ wnorm - np.eye(wnorm.shape[1]), ord="fro") / wnorm.shape[1])
+    return int(k), dev_ortho, err
+
+
+def _init_auto_worker(
+    data: np.ndarray,
+    location: np.ndarray,
+    no_signatures: int,
+    seed: Optional[int],
+    maxiter: int,
+    kernel_cutoff: float,
+    lap: np.ndarray,
+    data_proc: np.ndarray,
+    n_jobs_init: int,
+) -> None:
+    global _AUTO_DATA, _AUTO_LOCATION, _AUTO_K, _AUTO_SEED, _AUTO_MAXITER
+    global _AUTO_KERNEL_CUTOFF, _AUTO_LAP, _AUTO_DATA_PROC, _AUTO_NJOBS_INIT
+    _AUTO_DATA = data
+    _AUTO_LOCATION = location
+    _AUTO_K = no_signatures
+    _AUTO_SEED = seed
+    _AUTO_MAXITER = maxiter
+    _AUTO_KERNEL_CUTOFF = kernel_cutoff
+    _AUTO_LAP = lap
+    _AUTO_DATA_PROC = data_proc
+    _AUTO_NJOBS_INIT = n_jobs_init
+
+
+def _auto_lambda_worker(lam: float) -> tuple[float, float, float]:
+    from .core import spatial_pnmf
+
+    res = spatial_pnmf(
+        data=_AUTO_DATA,
+        no_signatures=_AUTO_K,
+        location=_AUTO_LOCATION,
+        seed=_AUTO_SEED,
+        maxiter=_AUTO_MAXITER,
+        use_smoothing=(lam > 0),
+        lambda_smooth=float(lam),
+    )
+    scores = res["scores"]
+    weights = res["weights"]
+    recon_error = float(np.linalg.norm(_AUTO_DATA_PROC - (scores @ weights)))
+    lap_energy = float(np.mean([float(s.T @ _AUTO_LAP @ s) / s.shape[0] for s in scores.T]))
+    return float(lam), recon_error, lap_energy
 
 
 def dist_index(x: np.ndarray, index: Sequence[int]) -> np.ndarray:
@@ -215,43 +345,22 @@ def select_no_signatures(
     initial: int = 3,
     small_iter: int = 30,
     seed: Optional[int] = None,
+    n_jobs: int = 1,
+    n_jobs_init: int = 1,
 ) -> dict:
     results = []
-    for k in k_seq:
-        if method == "nnmf":
-            from .core import nnmf
-
-            res = nnmf(
-                data=data,
-                no_signatures=int(k),
-                location=location,
-                maxiter=maxiter,
-                initial=initial,
-                small_iter=small_iter,
-                seed=seed,
-            )
-            weights = res["weights"]
-            err = float(res.get("error", np.nan))
-        elif method == "spatial_pnmf":
-            from .core import spatial_pnmf
-
-            res = spatial_pnmf(
-                data=data,
-                no_signatures=int(k),
-                location=location,
-                maxiter=maxiter,
-                initial=initial,
-                small_iter=small_iter,
-                seed=seed,
-            )
-            weights = res["weights"]
-            err = float(np.linalg.norm(data - weights @ res["signatures"]))
-        else:
-            raise ValueError("method must be 'nnmf' or 'spatial_pnmf'.")
-
-        wnorm = weights / np.maximum(np.linalg.norm(weights, axis=0, keepdims=True), 1e-12)
-        dev_ortho = float(np.linalg.norm(wnorm.T @ wnorm - np.eye(wnorm.shape[1]), ord="fro") / wnorm.shape[1])
-        results.append((int(k), dev_ortho, err))
+    if n_jobs > 1 and len(k_seq) > 1:
+        ctx = _get_mp_context()
+        with ctx.Pool(
+            processes=int(n_jobs),
+            initializer=_init_select_worker,
+            initargs=(data, location, method, maxiter, initial, small_iter, seed, n_jobs_init),
+        ) as pool:
+            results = pool.map(_select_worker, list(k_seq))
+    else:
+        _init_select_worker(data, location, method, maxiter, initial, small_iter, seed, n_jobs_init)
+        for k in k_seq:
+            results.append(_select_worker(int(k)))
 
     arr = np.array(results, dtype=float)
     ks = arr[:, 0]
@@ -283,9 +392,9 @@ def auto_lambda(
     seed: Optional[int] = None,
     maxiter: int = 1000,
     kernel_cutoff: float = 0.1,
+    n_jobs: int = 1,
+    n_jobs_init: int = 1,
 ) -> dict:
-    from .core import spatial_pnmf
-
     if smoothness_metric not in {"lap_energy"}:
         raise ValueError("smoothness_metric must be 'lap_energy'.")
 
@@ -305,24 +414,22 @@ def auto_lambda(
             vals.append(float(s.T @ lap @ s) / s.shape[0])
         return float(np.mean(vals))
 
+    data_proc = (data / np.sum(data, axis=1, keepdims=True)) * 1e4
+    data_proc = np.log1p(data_proc)
+
     rows = []
-    for lam in lambdas:
-        res = spatial_pnmf(
-            data=data,
-            no_signatures=no_signatures,
-            location=location,
-            seed=seed,
-            maxiter=maxiter,
-            use_smoothing=(lam > 0),
-            lambda_smooth=float(lam),
-        )
-        scores = res["scores"]
-        weights = res["weights"]
-        data_proc = (data / np.sum(data, axis=1, keepdims=True)) * 1e4
-        data_proc = np.log1p(data_proc)
-        recon_error = float(np.linalg.norm(data_proc - (scores @ weights)))
-        smooth_val = lap_energy(scores)
-        rows.append((float(lam), recon_error, smooth_val))
+    if n_jobs > 1 and len(lambdas) > 1:
+        ctx = _get_mp_context()
+        with ctx.Pool(
+            processes=int(n_jobs),
+            initializer=_init_auto_worker,
+            initargs=(data, location, int(no_signatures), seed, maxiter, kernel_cutoff, lap, data_proc, n_jobs_init),
+        ) as pool:
+            rows = pool.map(_auto_lambda_worker, list(lambdas))
+    else:
+        _init_auto_worker(data, location, int(no_signatures), seed, maxiter, kernel_cutoff, lap, data_proc, n_jobs_init)
+        for lam in lambdas:
+            rows.append(_auto_lambda_worker(float(lam)))
 
     arr = np.array(rows, dtype=float)
     lam_vals = arr[:, 0]
