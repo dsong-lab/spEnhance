@@ -40,7 +40,7 @@ suppressMessages({
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 4) {
-  stop("Usage: Rscript run_rctd.R <seurat_ref.rds> <cnts.csv> <locs.csv> <outdir> <num_cores>")
+  stop("Usage: Rscript run_rctd.R <seurat_ref.rds> <cnts.csv> <locs.csv> <outdir> <num_cores> [seed]")
 }
 
 seurat_file <- args[1]  # annotated scRNA-seq (Seurat RDS)
@@ -49,6 +49,12 @@ locs_file   <- args[3]  # spatial coords
 outdir      <- args[4]  # output folder
 num_cores   <- args[5]  # number of cores used
 if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
+if (length(args) >= 6) {
+  seed <- suppressWarnings(as.integer(args[6]))
+  if (!is.na(seed)) {
+    set.seed(seed)
+  }
+}
 
 # ========== Load single-cell reference ==========
 print("Loading single-cell reference...")
