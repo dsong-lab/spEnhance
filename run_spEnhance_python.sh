@@ -104,6 +104,17 @@ if [ "$validation" = true ]; then
         --locs_val_name locs.csv \
         --epochs=400 --device='cuda' --n_states=5
 
+    
+    python impute_spEnhance_baseline.py \
+        ${prefix} \
+        --cnts_train_name ${cnts_train_name}_seed_${seed}.csv \
+        --cnts_val_name ${cnts_val_name}_seed_${seed}.csv \
+        --features vit,uni,combined \
+        --graph-model gcn \
+        --epochs 200 \
+        --device cuda \
+        --n_states 3 
+        
     python predict_final_split.py \
         --prefix ${prefix} \
         --state-path 
