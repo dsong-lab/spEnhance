@@ -11,6 +11,11 @@ python select_genes.py --n-top=600 ${prefix}"proportion_celltype.csv" ${prefix}"
 
 python impute_slide_celltype.py ${prefix} --epochs=100 --device='cuda' --n_states=5
 
-python assign_reference.py ${prefix} --mode='combined' --normalize='gene-zscore' --dim=256
-
+# python assign_reference.py ${prefix} --mode='combined' --normalize='gene-zscore' --dim=256
+python assign_reference.py ${prefix} \
+  --mode combined \
+  --normalize celltype \
+  --svd-method nmf \
+  --expr-dim 8
+  
 python plot_predicted_celltype.py ${prefix}
