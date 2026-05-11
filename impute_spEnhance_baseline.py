@@ -58,7 +58,7 @@ def get_data(prefix, cnts_train_name, cnts_val_name, feature_names):
     cnts_train = preprocess_cnts(load_csv(f"{prefix}{cnts_train_name}"), gene_names)
     cnts_val = preprocess_cnts(load_csv(f"{prefix}{cnts_val_name}"), gene_names)
 
-    embs = load_pickle(f"{prefix}embeddings-hist-merged.pickle")
+    embs = load_pickle(f"{prefix}embeddings-combined.pickle")
     embs = np.concatenate([embs[name] for name in feature_names]).transpose(1, 2, 0)
     locs = get_locs(prefix, target_shape=embs.shape[:2])
     return embs, cnts_train, cnts_val, locs, cluster_size
