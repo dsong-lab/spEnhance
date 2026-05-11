@@ -104,6 +104,16 @@ if [ "$validation" = true ]; then
         --locs_val_name locs.csv \
         --epochs=400 --device='cuda' --n_states=5
 
+    python predict_final_split.py \
+        --prefix ${prefix} \
+        --state-path 
+        --cnts-train-name cnts_train_seed_1.csv \
+        --cnts-name cnts.csv \
+        --embs_all_name ${prefix}embeddings-combined.pickle \
+        --output-suffix=-prediction\
+        --device cuda \
+        --batch-size 64 \
+
     # Rank global performance and visualize local uncertainties
     python error_quant.py --prefix ${prefix} \
         --cnts_val_name ${cnts_val_name}_seed_${seed}.csv \
