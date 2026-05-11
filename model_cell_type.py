@@ -145,21 +145,41 @@ class spCelltype(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y_mean = batch
-        mask = get_disk_mask(self.ori_radius/16)
-        mask = torch.BoolTensor(mask).to('cuda')
+        eps = 1e-8
+    
+        mask = get_disk_mask(self.ori_radius / 16)
+        mask = torch.BoolTensor(mask).to(x.device)
+    
         y_pred = self.forward(x)
-        y_pred = y_pred.reshape(y_pred.shape[0], mask.shape[0], mask.shape[1], y_pred.shape[2])
-        y_pred = torch.masked_select(y_pred, mask.unsqueeze(0).unsqueeze(-1)).view(y_pred.shape[0], -1, y_pred.shape[-1])
-
-        y_mean_pred = y_pred.mean(-2)
-
-        # mse = ((y_mean_pred - y_mean)**2).mean()
-        kl_div = F.kl_div(y_mean_pred.log(), y_mean, reduction="batchmean")
-        loss = kl_div
-        self.log('loss', loss, prog_bar=True)
+        y_pred = y_pred.reshape(
+            y_pred.shape[0],
+            mask.shape[0],
+            mask.shape[1],
+            y_pred.shape[2]
+        )
+    
+        y_pred = torch.masked_select(
+            y_pred,
+            mask.unsqueeze(0).unsqueeze(-1)
+        ).view(y_pred.shape[0], -1, y_pred.shape[-1])
+    
+        y_mean_pred = y_pred.mean(dim=-2)
+    
+        y_mean_pred = torch.clamp(y_mean_pred, min=eps)
+        y_mean_pred = y_mean_pred / y_mean_pred.sum(dim=-1, keepdim=True).clamp(min=eps)
+    
+        y_mean = torch.clamp(y_mean, min=0.0)
+        y_mean = y_mean / y_mean.sum(dim=-1, keepdim=True).clamp(min=eps)
+    
+        loss = F.kl_div(
+            y_mean_pred.log(),
+            y_mean,
+            reduction="batchmean"
+        )
+    
+        self.log("loss", loss, prog_bar=True)
         return loss
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)
         return optimizer
-
