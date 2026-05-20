@@ -12,6 +12,9 @@ n_genes=1000  # number of most variable genes to impute
 # preprocess histology image
 echo $pixel_size > ${prefix}pixel-size.txt
 
+# Optional: tiff transformation
+python tiff2png.py -i input.tiff -o he-raw.png
+
 python rescale.py ${prefix} --image
 
 python preprocess.py ${prefix} --image
